@@ -73,6 +73,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.HashMap;
 
 public class AdMob extends org.godotengine.godot.plugin.GodotPlugin {
     private static final String PLUGIN_VERSION = "2.1.6";
@@ -89,7 +90,9 @@ public class AdMob extends org.godotengine.godot.plugin.GodotPlugin {
 
     private boolean aIsBannerLoaded = false;
     private boolean aIsInterstitialLoaded = false;
-    private boolean aIsRewardedLoaded = false;
+    //private boolean aIsRewardedLoaded = false;
+    private HashMap<String, Boolean> aIsRewardedLoaded = new HashMap<>();
+
     private boolean aIsRewardedInterstitialLoaded = false;
 
     private FrameLayout aGodotLayout; // store the godot layout
@@ -144,8 +147,9 @@ public class AdMob extends org.godotengine.godot.plugin.GodotPlugin {
     public boolean get_is_interstitial_loaded() {
         return aIsInterstitialLoaded;
     }
-    public boolean get_is_rewarded_loaded() {
-        return aIsRewardedLoaded;
+    public boolean get_is_rewarded_loaded(String pAdUnitId) {
+        //return aIsRewardedLoaded;
+        return aIsRewardedLoaded.get(pAdUnitId);
     }
     public boolean get_is_rewarded_interstitial_loaded() {
         return aIsRewardedInterstitialLoaded;
@@ -196,13 +200,13 @@ public class AdMob extends org.godotengine.godot.plugin.GodotPlugin {
         signals.add(new SignalInfo("interstitial_closed"));
         signals.add(new SignalInfo("interstitial_recorded_impression"));
 
-        signals.add(new SignalInfo("rewarded_ad_failed_to_load", Integer.class));
-        signals.add(new SignalInfo("rewarded_ad_loaded"));
-        signals.add(new SignalInfo("rewarded_ad_failed_to_show", Integer.class));
-        signals.add(new SignalInfo("rewarded_ad_opened"));
-        signals.add(new SignalInfo("rewarded_ad_clicked"));
-        signals.add(new SignalInfo("rewarded_ad_closed"));
-        signals.add(new SignalInfo("rewarded_ad_recorded_impression"));
+        signals.add(new SignalInfo("rewarded_ad_failed_to_load", String.class, Integer.class));
+        signals.add(new SignalInfo("rewarded_ad_loaded", String.class));
+        signals.add(new SignalInfo("rewarded_ad_failed_to_show", String.class, Integer.class));
+        signals.add(new SignalInfo("rewarded_ad_opened", String.class));
+        signals.add(new SignalInfo("rewarded_ad_clicked", String.class));
+        signals.add(new SignalInfo("rewarded_ad_closed", String.class));
+        signals.add(new SignalInfo("rewarded_ad_recorded_impression", String.class));
 
         signals.add(new SignalInfo("rewarded_interstitial_ad_failed_to_load", Integer.class));
         signals.add(new SignalInfo("rewarded_interstitial_ad_loaded"));
@@ -624,79 +628,94 @@ public class AdMob extends org.godotengine.godot.plugin.GodotPlugin {
     }
     //INTERSTITIAL
     //REWARDED
-    public void load_rewarded(final String pAdUnitId)
+    // Додано новий контейнер для зберігання завантажених реклам
+    private HashMap<String, RewardedAd> rewardedAdsMap = new HashMap<>();
+
+    // Оновлена функція load_rewarded
+    public void load_rewarded(final String pAdUnitId) 
     {
         aActivity.runOnUiThread(() -> {
             if (aIsInitialized) {
-                RewardedAd.load(aActivity, pAdUnitId, getAdRequest(), new RewardedAdLoadCallback(){
+                // Встановлення стану завантаження реклами в false
+                aIsRewardedLoaded.put(pAdUnitId, false);
+
+                RewardedAd.load(aActivity, pAdUnitId, getAdRequest(), new RewardedAdLoadCallback() {
                     @Override
                     public void onAdFailedToLoad(@NonNull LoadAdError loadAdError) {
-                        // Handle the error.
-                        aRewardedAd = null;
-                        emitSignal("rewarded_ad_failed_to_load", loadAdError.getCode());
-
+                        rewardedAdsMap.put(pAdUnitId, null);
+                        // Обробка помилки завантаження
+                        emitSignal("rewarded_ad_failed_to_load", pAdUnitId, loadAdError.getCode());
                     }
 
                     @Override
                     public void onAdLoaded(@NonNull RewardedAd rewardedAd) {
-                        aRewardedAd = rewardedAd;
-                        emitSignal("rewarded_ad_loaded");
+                        // Зберігання завантаженої реклами в мапі
+                        rewardedAdsMap.put(pAdUnitId, rewardedAd);
 
-                        aIsRewardedLoaded = true;
+                        // Встановлення стану завантаження реклами в true
+                        aIsRewardedLoaded.put(pAdUnitId, true);
+
+                        emitSignal("rewarded_ad_loaded", pAdUnitId);
                     }
                 });
             }
         });
     }
 
-    public void show_rewarded()
-    {
-        aActivity.runOnUiThread(() -> {
-            if (aIsInitialized) {
-                if (aRewardedAd != null) {
-                    aRewardedAd.setFullScreenContentCallback(new FullScreenContentCallback() {
-                        @Override
-                        public void onAdClicked() {
-                            // Called when a click is recorded for an ad.
-                            emitSignal("rewarded_ad_clicked");
-                        }
 
+
+
+    public void show_rewarded(String pAdUnitId) {
+        aActivity.runOnUiThread(() -> {
+            if (aIsInitialized && aIsRewardedLoaded.containsKey(pAdUnitId) && aIsRewardedLoaded.get(pAdUnitId)) {
+                RewardedAd rewardedAd = rewardedAdsMap.get(pAdUnitId);
+                if (rewardedAd != null) {
+                    rewardedAd.setFullScreenContentCallback(new FullScreenContentCallback() {
                         @Override
                         public void onAdDismissedFullScreenContent() {
-                            // Called when ad is dismissed.
-                            aRewardedAd = null;
-                            emitSignal("rewarded_ad_closed");
-                            aIsRewardedLoaded = false;
+                            // Видалення показаної реклами з мапи
+                            rewardedAdsMap.remove(pAdUnitId);
+
+                            // Встановлення стану завантаження реклами в false
+                            aIsRewardedLoaded.put(pAdUnitId, false);
+
+                            emitSignal("rewarded_ad_closed", pAdUnitId);
                         }
 
                         @Override
-                        public void onAdFailedToShowFullScreenContent(@NonNull AdError adError) {
-                            // Called when ad fails to show.
-                            aRewardedAd = null;
-                            emitSignal("rewarded_ad_failed_to_show", adError.getCode());
-                        }
-
-                        @Override
-                        public void onAdImpression() {
-                            // Called when an impression is recorded for an ad.
-                            emitSignal("rewarded_ad_recorded_impression");
+                        public void onAdFailedToShowFullScreenContent(AdError adError) {
+                            // Обробка помилки показу реклами
+                            emitSignal("rewarded_ad_failed_to_show", pAdUnitId, adError.getCode());
                         }
 
                         @Override
                         public void onAdShowedFullScreenContent() {
-                            // Called when ad is shown.
-                            emitSignal("rewarded_ad_opened");
+                            // Обробка показу реклами
+                            emitSignal("rewarded_ad_opened", pAdUnitId);
+                        }
+
+                        @Override
+                        public void onAdImpression() {
+                            // Обробка враження від реклами
+                            emitSignal("rewarded_ad_recorded_impression", pAdUnitId);
+                        }
+
+                        @Override
+                        public void onAdClicked() {
+                            // Обробка кліку по рекламі
+                            emitSignal("rewarded_ad_clicked", pAdUnitId);
                         }
                     });
 
-                    aRewardedAd.show(aActivity, rewardItem -> {
-                        // Handle the reward.
+                    rewardedAd.show(aActivity, rewardItem -> {
+                        // Обробка нагороди
                         emitSignal("user_earned_rewarded", rewardItem.getType(), rewardItem.getAmount());
                     });
                 }
             }
         });
     }
+
     //
 
     public void load_rewarded_interstitial(final String pAdUnitId)
