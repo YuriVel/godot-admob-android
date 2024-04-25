@@ -148,8 +148,10 @@ public class AdMob extends org.godotengine.godot.plugin.GodotPlugin {
         return aIsInterstitialLoaded;
     }
     public boolean get_is_rewarded_loaded(String pAdUnitId) {
-        //return aIsRewardedLoaded;
-        return aIsRewardedLoaded.get(pAdUnitId);
+        if (aIsRewardedLoaded.containsKey(pAdUnitId)) {
+            return aIsRewardedLoaded.get(pAdUnitId);
+        } 
+        return false; 
     }
     public boolean get_is_rewarded_interstitial_loaded() {
         return aIsRewardedInterstitialLoaded;
